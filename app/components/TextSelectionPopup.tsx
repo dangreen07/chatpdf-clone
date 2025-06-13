@@ -6,9 +6,10 @@ interface PopupProps {
   y: number;
   onClose: () => void;
   selectedText: string;
+  onAction: (type: "explain" | "summarize" | "rewrite", text: string) => void;
 }
 
-export default function TextSelectionPopup({ visible, x, y, onClose, selectedText }: PopupProps) {
+export default function TextSelectionPopup({ visible, x, y, onClose, selectedText, onAction }: PopupProps) {
   // Close on Esc or click outside handled in parent if needed
   useEffect(() => {
     const handleEsc = (e: KeyboardEvent) => {
@@ -22,28 +23,18 @@ export default function TextSelectionPopup({ visible, x, y, onClose, selectedTex
 
   return (
     <div
-      style={{ top: y, left: x, transform: 'translate(-50%,-110%)' }}
+      style={{ top: y, left: x, transform: 'translate(-50%, -100%)' }}
       className="fixed z-50 flex flex-col items-center bg-gray-800 text-white px-4 py-3 rounded-lg shadow-lg"
     >
       <div className="flex gap-6 text-sm font-medium mb-2">
-        <button className="hover:text-yellow-400" onClick={() => alert(`Explain: ${selectedText}`)}>Explain</button>
+        <button className="hover:text-yellow-400" onClick={() => onAction("explain", selectedText)}>Explain</button>
         <span className="opacity-50">|</span>
-        <button className="hover:text-yellow-400" onClick={() => alert(`Summarize: ${selectedText}`)}>Summarize</button>
+        <button className="hover:text-yellow-400" onClick={() => onAction("summarize", selectedText)}>Summarize</button>
         <span className="opacity-50">|</span>
-        <button className="hover:text-yellow-400" onClick={() => alert(`Rewrite: ${selectedText}`)}>Rewrite</button>
+        <button className="hover:text-yellow-400" onClick={() => onAction("rewrite", selectedText)}>Rewrite</button>
       </div>
-      {/* Color dots */}
-      <div className="flex gap-2 mb-2">
-        {['#e53935', '#ffb300', '#c0ca33', '#43a047', '#1e88e5', '#8e24aa', '#ad1457'].map((color) => (
-          <span
-            key={color}
-            className="w-4 h-4 rounded-full cursor-pointer"
-            style={{ backgroundColor: color }}
-            title="Highlight"
-            onClick={() => alert(`Highlight in ${color}: ${selectedText}`)}
-          />
-        ))}
-      </div>
+      {/* Spacer for layout consistency */}
+      <div className="h-2" />
       {/* Close icon */}
       <button className="absolute top-1 right-1 text-gray-400 hover:text-white" onClick={onClose}>×</button>
     </div>

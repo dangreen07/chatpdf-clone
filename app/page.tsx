@@ -3,6 +3,7 @@
 import { useState, useRef } from "react";
 import ResizablePanel from "./components/ResizablePanel";
 import TextSelectionPopup from "./components/TextSelectionPopup";
+import ChatPanel, { ChatMessage } from "./components/ChatPanel";
 
 // React-PDF components (Webpack entry ensures worker is bundled correctly)
 import { Document, Page, pdfjs } from "react-pdf";
@@ -20,6 +21,7 @@ export default function Home() {
   const [numPages, setNumPages] = useState<number>(0);
   const [popupState, setPopupState] = useState<{visible:boolean, x:number, y:number, text:string}>({visible:false, x:0, y:0, text:""});
   const pdfContainerRef = useRef<HTMLDivElement>(null);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
 
   const handleDocumentLoadSuccess = ({ numPages }: { numPages: number }) => {
     setNumPages(numPages);
@@ -27,10 +29,25 @@ export default function Home() {
 
   // click handler using event delegation
   const handlePdfClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    // Check if there's an active text selection - if so, don't handle click
+    const sel = window.getSelection();
+    if (sel && !sel.isCollapsed) {
+      console.log('Click ignored due to active selection');
+      return;
+    }
+
     const target = e.target as HTMLElement;
     // Ensure clicked element is a span inside pdf text layer
     if (target.tagName === 'SPAN' && target.closest('.react-pdf__Page__textContent')) {
       const rect = target.getBoundingClientRect();
+      
+      console.log('Click debug:', {
+        text: (target.textContent || '').substring(0, 50),
+        rect: { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
+        mousePos: { x: e.clientX, y: e.clientY },
+        finalPos: { x: rect.left + rect.width / 2, y: rect.top }
+      });
+      
       setPopupState({
         visible: true,
         x: rect.left + rect.width / 2,
@@ -38,11 +55,6 @@ export default function Home() {
         text: target.textContent || ''
       });
     } else {
-      // If a text selection is still active, keep the popup open so that mouseup handler can decide
-      const sel = window.getSelection();
-      if (sel && !sel.isCollapsed) {
-        return;
-      }
       // Otherwise, clicked elsewhere -> close popup
       if (popupState.visible) setPopupState((prev) => ({ ...prev, visible: false }));
     }
@@ -50,29 +62,107 @@ export default function Home() {
 
   const closePopup = () => setPopupState(prev=>({...prev, visible:false}));
 
-  // Show popup when user finishes a text selection (mouse up)
-  const handleMouseUp = () => {
+  // Show popup when user finishes a text selection
+  const handleMouseUp = (e: React.MouseEvent<HTMLDivElement>) => {
     const sel = window.getSelection();
     if (!sel || sel.isCollapsed) return;
 
     const selectedText = sel.toString().trim();
     if (!selectedText) return;
 
-    if (pdfContainerRef.current && sel.anchorNode && pdfContainerRef.current.contains(sel.anchorNode)) {
+    // Only show popup if selection is within PDF container
+    if (
+      pdfContainerRef.current &&
+      sel.anchorNode &&
+      pdfContainerRef.current.contains(sel.anchorNode)
+    ) {
       try {
         const range = sel.getRangeAt(0);
         const rect = range.getBoundingClientRect();
+        
+        console.log('Selection mouseup debug:', {
+          selectedText: selectedText.substring(0, 50),
+          rect: { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
+          mousePos: { x: e.clientX, y: e.clientY },
+          finalPos: { x: rect.left + rect.width / 2, y: rect.top },
+          viewport: { width: window.innerWidth, height: window.innerHeight },
+          scroll: { x: window.scrollX, y: window.scrollY }
+        });
+        
         setPopupState({
           visible: true,
           x: rect.left + rect.width / 2,
           y: rect.top,
           text: selectedText,
         });
-      } catch {
-        /* ignore */
+      } catch (error) {
+        console.log('Range failed, using mouse position:', { x: e.clientX, y: e.clientY, error });
+        // Fallback to mouse position
+        setPopupState({
+          visible: true,
+          x: e.clientX,
+          y: e.clientY,
+          text: selectedText,
+        });
       }
     }
   };
+
+  const addAssistantReply = (content:string)=>{
+    setChatMessages(prev=>[...prev,{role:"assistant", content}]);
+  }
+
+  const handleSend = async (text:string)=>{
+    // push user message
+    setChatMessages(prev=>[...prev,{role:"user", content:text}]);
+
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: [...chatMessages, { role: 'user', content: text }] }),
+      });
+
+      if (!res.ok || !res.body) {
+        addAssistantReply('Error: Unable to get response');
+        return;
+      }
+
+      // prepare streaming assistant entry
+      let assistantIndex: number;
+      setChatMessages(prev => {
+        assistantIndex = prev.length;
+        return [...prev, { role: 'assistant', content: '' }];
+      });
+
+      const reader = res.body
+        .pipeThrough(new TextDecoderStream())
+        .getReader();
+
+      let respText = "";
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+
+        respText += value;
+        setChatMessages(prev => {
+          const updated = [...prev];
+          updated[assistantIndex].content = respText;
+          return updated;
+        });
+      }
+    } catch (err) {
+      console.error(err);
+      addAssistantReply('Error contacting server');
+    }
+  };
+
+  const handlePopupAction = (type:"explain"|"summarize"|"rewrite", text:string)=>{
+    const prompt = `${type.charAt(0).toUpperCase()+type.slice(1)}: ${text}`;
+    handleSend(prompt);
+    closePopup();
+  }
 
   return (
     <main className="flex h-screen bg-gray-100 w-full">
@@ -122,6 +212,7 @@ export default function Home() {
           y={popupState.y}
           onClose={closePopup}
           selectedText={popupState.text}
+          onAction={handlePopupAction}
         />
       </div>
 
@@ -133,10 +224,7 @@ export default function Home() {
         maxWidth={60}
         position="right"
       >
-        <div className="p-4 h-full flex flex-col">
-          <h3 className="text-lg font-semibold mb-4">Chat</h3>
-          {/* Chat content will go here */}
-        </div>
+        <ChatPanel messages={chatMessages} onSend={handleSend} />
       </ResizablePanel>
     </main>
   );
