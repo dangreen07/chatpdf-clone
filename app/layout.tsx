@@ -14,7 +14,10 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "ChatPDF Clone",
-  description: "ChatPDF Clone",
+  description: "A modern PDF reader with AI-powered chat functionality built with Next.js, React, and OpenAI. Upload PDFs, interact with text through contextual popups, and have conversations about your documents.",
+  icons: {
+    icon: "/logo.png"
+  }
 };
 
 export default function RootLayout({
