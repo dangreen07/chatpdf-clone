@@ -5,13 +5,13 @@ export const runtime = "edge";
 
 export async function POST(req: NextRequest) {
   try {
-    const { messages } = await req.json();
+    const { messages, apiKey } = await req.json();
 
-    if (!process.env.OPENAI_API_KEY) {
-      return new Response("OpenAI API key not configured", { status: 500 });
+    if (!apiKey || !apiKey.trim()) {
+      return new Response("OpenAI API key is required", { status: 400 });
     }
 
-    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    const openai = new OpenAI({ apiKey: apiKey.trim() });
 
     const response = await openai.responses.create({
       model: "gpt-4.1-nano",

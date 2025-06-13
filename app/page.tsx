@@ -22,6 +22,7 @@ export default function Home() {
   const [popupState, setPopupState] = useState<{visible:boolean, x:number, y:number, text:string}>({visible:false, x:0, y:0, text:""});
   const pdfContainerRef = useRef<HTMLDivElement>(null);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [apiKey, setApiKey] = useState<string>("");
 
   const handleDocumentLoadSuccess = ({ numPages }: { numPages: number }) => {
     setNumPages(numPages);
@@ -113,6 +114,12 @@ export default function Home() {
   }
 
   const handleSend = async (text:string)=>{
+    // Check if API key is provided
+    if (!apiKey.trim()) {
+      addAssistantReply('Please enter your OpenAI API key first.');
+      return;
+    }
+
     // push user message
     setChatMessages(prev=>[...prev,{role:"user", content:text}]);
 
@@ -120,7 +127,10 @@ export default function Home() {
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: [...chatMessages, { role: 'user', content: text }] }),
+        body: JSON.stringify({ 
+          messages: [...chatMessages, { role: 'user', content: text }],
+          apiKey: apiKey 
+        }),
       });
 
       if (!res.ok || !res.body) {
@@ -169,12 +179,38 @@ export default function Home() {
       {/* Sidebar */}
       <div id="sidebar" className="w-1/6 bg-gray-200 p-3 flex flex-col gap-4">
         <h1 className="text-2xl font-bold">ChatPDF Clone</h1>
-        <input
-          type="file"
-          accept="application/pdf"
-          className="file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
-          onChange={(e) => setPdfFile(e.target.files?.[0] || null)}
-        />
+        
+        {/* OpenAI API Key Input */}
+        <div className="flex flex-col gap-2">
+          <label htmlFor="apiKey" className="text-sm font-medium text-gray-700">
+            OpenAI API Key
+          </label>
+          <input
+            id="apiKey"
+            type="password"
+            placeholder="sk-..."
+            value={apiKey}
+            onChange={(e) => setApiKey(e.target.value)}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          />
+          {apiKey && (
+            <p className="text-xs text-green-600">✓ API Key entered</p>
+          )}
+        </div>
+
+        {/* PDF Upload */}
+        <div className="flex flex-col gap-2">
+          <label htmlFor="pdfUpload" className="text-sm font-medium text-gray-700">
+            Upload PDF
+          </label>
+          <input
+            id="pdfUpload"
+            type="file"
+            accept="application/pdf"
+            className="file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+            onChange={(e) => setPdfFile(e.target.files?.[0] || null)}
+          />
+        </div>
       </div>
 
       {/* PDF Display Area */}
