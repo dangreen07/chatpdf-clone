@@ -1,103 +1,143 @@
-import Image from "next/image";
+"use client";
+
+import { useState, useRef } from "react";
+import ResizablePanel from "./components/ResizablePanel";
+import TextSelectionPopup from "./components/TextSelectionPopup";
+
+// React-PDF components (Webpack entry ensures worker is bundled correctly)
+import { Document, Page, pdfjs } from "react-pdf";
+
+// Import default styles for text & annotation layers
+import "react-pdf/dist/Page/TextLayer.css";
+import "react-pdf/dist/Page/AnnotationLayer.css";
+
+// Ensure the worker version matches the pdf.js version bundled with react-pdf
+pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/legacy/build/pdf.worker.min.mjs`;
 
 export default function Home() {
-  return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm/6 text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-[family-name:var(--font-geist-mono)] font-semibold">
-              app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+  // PDF state handling
+  const [pdfFile, setPdfFile] = useState<File | null>(null);
+  const [numPages, setNumPages] = useState<number>(0);
+  const [popupState, setPopupState] = useState<{visible:boolean, x:number, y:number, text:string}>({visible:false, x:0, y:0, text:""});
+  const pdfContainerRef = useRef<HTMLDivElement>(null);
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+  const handleDocumentLoadSuccess = ({ numPages }: { numPages: number }) => {
+    setNumPages(numPages);
+  };
+
+  // click handler using event delegation
+  const handlePdfClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    const target = e.target as HTMLElement;
+    // Ensure clicked element is a span inside pdf text layer
+    if (target.tagName === 'SPAN' && target.closest('.react-pdf__Page__textContent')) {
+      const rect = target.getBoundingClientRect();
+      setPopupState({
+        visible: true,
+        x: rect.left + rect.width / 2,
+        y: rect.top,
+        text: target.textContent || ''
+      });
+    } else {
+      // If a text selection is still active, keep the popup open so that mouseup handler can decide
+      const sel = window.getSelection();
+      if (sel && !sel.isCollapsed) {
+        return;
+      }
+      // Otherwise, clicked elsewhere -> close popup
+      if (popupState.visible) setPopupState((prev) => ({ ...prev, visible: false }));
+    }
+  };
+
+  const closePopup = () => setPopupState(prev=>({...prev, visible:false}));
+
+  // Show popup when user finishes a text selection (mouse up)
+  const handleMouseUp = () => {
+    const sel = window.getSelection();
+    if (!sel || sel.isCollapsed) return;
+
+    const selectedText = sel.toString().trim();
+    if (!selectedText) return;
+
+    if (pdfContainerRef.current && sel.anchorNode && pdfContainerRef.current.contains(sel.anchorNode)) {
+      try {
+        const range = sel.getRangeAt(0);
+        const rect = range.getBoundingClientRect();
+        setPopupState({
+          visible: true,
+          x: rect.left + rect.width / 2,
+          y: rect.top,
+          text: selectedText,
+        });
+      } catch {
+        /* ignore */
+      }
+    }
+  };
+
+  return (
+    <main className="flex h-screen bg-gray-100 w-full">
+      {/* Sidebar */}
+      <div id="sidebar" className="w-1/6 bg-gray-200 p-3 flex flex-col gap-4">
+        <h1 className="text-2xl font-bold">ChatPDF Clone</h1>
+        <input
+          type="file"
+          accept="application/pdf"
+          className="file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+          onChange={(e) => setPdfFile(e.target.files?.[0] || null)}
+        />
+      </div>
+
+      {/* PDF Display Area */}
+      <div id="pdf-display" className="flex-1 bg-gray-300 overflow-y-auto h-full flex justify-center" onClick={handlePdfClick} onMouseUp={handleMouseUp} ref={pdfContainerRef}>
+        {!pdfFile && (
+          <div className="flex flex-col items-center justify-center h-full text-gray-700">
+            <p className="mb-4">Select a PDF to start reading</p>
+          </div>
+        )}
+
+        {pdfFile && (
+          <div className="py-4">
+            <Document
+              file={pdfFile}
+              onLoadSuccess={handleDocumentLoadSuccess}
+              className="flex flex-col items-center gap-4"
+            >
+              {Array.from({ length: numPages }, (_, index) => (
+                <Page
+                  key={`page_${index + 1}`}
+                  pageNumber={index + 1}
+                  width={600}
+                  renderAnnotationLayer={false}
+                  renderTextLayer={true}
+                />
+              ))}
+            </Document>
+          </div>
+        )}
+
+        {/* Popup */}
+        <TextSelectionPopup
+          visible={popupState.visible}
+          x={popupState.x}
+          y={popupState.y}
+          onClose={closePopup}
+          selectedText={popupState.text}
+        />
+      </div>
+
+      {/* Chat Panel */}
+      <ResizablePanel
+        className="bg-gray-200"
+        initialWidth={33.33}
+        minWidth={20}
+        maxWidth={60}
+        position="right"
+      >
+        <div className="p-4 h-full flex flex-col">
+          <h3 className="text-lg font-semibold mb-4">Chat</h3>
+          {/* Chat content will go here */}
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
-    </div>
+      </ResizablePanel>
+    </main>
   );
 }
